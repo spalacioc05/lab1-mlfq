@@ -38,7 +38,11 @@ int validate_input(const Process procs[], int n, const SchedulerConfig *cfg) {
     return 1;
 }
 
-/* Paso 1: mete a Q0 los procesos que llegan exactamente en "time". */
+/*
+ * Paso 1: todo proceso nuevo entra a Q0 porque es la cola de mayor
+ * prioridad del MLFQ; asi cualquier proceso tiene oportunidad inmediata
+ * de correr antes de que el sistema sepa si es corto o largo.
+ */
 static void add_new_arrivals(Process procs[], int n, int time, Queue *q0) {
     for (int i = 0; i < n; i++) {
         if (procs[i].arrival_time == time) {
@@ -93,7 +97,11 @@ static Process *pick_next_process(Queue queues[NUM_QUEUES]) {
     return NULL;
 }
 
-/* Paso 10: agoto el quantum sin terminar -> baja de prioridad (Q2 se queda en Q2). */
+/*
+ * Paso 10: agoto el quantum sin terminar -> baja de prioridad. Q2 es la
+ * ultima cola (no existe una cola inferior), asi que un proceso que ya
+ * esta en Q2 simplemente vuelve al final de Q2 con el quantum reiniciado.
+ */
 static void demote(Process *p, Queue queues[NUM_QUEUES]) {
     if (p->current_queue < NUM_QUEUES - 1) {
         p->current_queue++;
@@ -102,6 +110,13 @@ static void demote(Process *p, Queue queues[NUM_QUEUES]) {
     enqueue(&queues[p->current_queue], p);
 }
 
+/*
+ * Bucle principal: el tiempo avanza de a un ciclo. En cada vuelta se
+ * repiten los mismos pasos (llegadas, boost, posible preemption, elegir
+ * quien corre, ejecutar un ciclo, y terminar o demover si corresponde).
+ * Un solo ciclo de CPU por vuelta es lo que hace que la simulacion sea
+ * de tiempo discreto y facil de seguir.
+ */
 void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
     Queue queues[NUM_QUEUES];
     for (int i = 0; i < NUM_QUEUES; i++) {
@@ -131,6 +146,7 @@ void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
             continue;
         }
 
+        /* start_time sigue en -1 solo la primera vez que el proceso obtiene la CPU. */
         if (current->start_time == -1) {
             current->start_time = time;
             current->first_response_time = time;
@@ -145,6 +161,7 @@ void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
         current->quantum_used++;
 
         if (current->remaining_time == 0) {
+            /* El ciclo "time" acaba de ejecutarse completo, asi que el proceso termina en time + 1. */
             current->finish_time = time + 1;
             current->finished = 1;
             finished_count++;
