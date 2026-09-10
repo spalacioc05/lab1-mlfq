@@ -101,8 +101,12 @@ static Process *pick_next_process(Queue queues[NUM_QUEUES]) {
  * Paso 10: agoto el quantum sin terminar -> baja de prioridad. Q2 es la
  * ultima cola (no existe una cola inferior), asi que un proceso que ya
  * esta en Q2 simplemente vuelve al final de Q2 con el quantum reiniciado.
+ *
+ * Esta es la regla por defecto. cfg.demote permite reemplazarla (ej. una
+ * cola adicional, o una regla que no reinicie el quantum) sin modificar
+ * run_simulation.
  */
-static void demote(Process *p, Queue queues[NUM_QUEUES]) {
+static void default_demote(Process *p, Queue queues[NUM_QUEUES]) {
     if (p->current_queue < NUM_QUEUES - 1) {
         p->current_queue++;
     }
@@ -167,6 +171,7 @@ void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
             finished_count++;
             current = NULL;
         } else if (current->quantum_used == cfg.quantum[current->current_queue]) {
+            DemotionPolicy demote = cfg.demote ? cfg.demote : default_demote;
             demote(current, queues);
             current = NULL;
         }

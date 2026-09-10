@@ -166,10 +166,15 @@ waiting_time    = turnaround_time - burst_time
   proceso ejecutándose, lo reclasifica como Q0 sin sacarlo de la CPU.
 - El CSV se genera en un archivo aparte (`csv.c`) para no mezclar la
   lógica de planificación con la de exportación de resultados.
-
-No se implementan patrones de diseño formales (Factory, Strategy,
-Observer, etc.); la separación por archivos solo busca que cada uno sea
-fácil de leer por separado.
+- La regla de democión (`SchedulerConfig.demote`) es un puntero a función:
+  `run_simulation` no conoce la regla concreta, solo la invoca. Por
+  defecto es NULL y se usa `default_demote` (Q0→Q1→Q2, se queda en Q2),
+  pero se puede reemplazar por otra regla —o una cola adicional— sin
+  modificar el bucle principal del scheduler. Es una aplicación puntual
+  de **Strategy**: se agregó porque el enunciado pide explícitamente que
+  el sistema permita esto (OCP), no como patrón decorativo. El resto del
+  simulador no usa patrones formales a propósito, para no sobre-diseñar
+  un simulador de este tamaño.
 
 ## Pruebas
 
