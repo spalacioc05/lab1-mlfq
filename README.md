@@ -1,6 +1,6 @@
 # Laboratorio 1 - MLFQ
 
-**Estudiante:** Santiago Palacio Cárdenas
+**Estudiante:** David Arango Pineda - Juan Pablo Herrera - Santiago Palacio
 
 Simulador en C de un scheduler con política Multi-Level Feedback Queue
 (MLFQ), con tres colas de prioridad, priority boost configurable y
@@ -56,22 +56,24 @@ termina o debe demoverse.
 
 ```
 lab1-mlfq/
-├── main.c        Escenario principal y ejecución del programa
+├── main.c        Escenario principal, CLI y salida por consola
 ├── process.h     Struct Process y fórmulas de métricas
 ├── queue.c/h     Cola FIFO simple (arreglo circular)
 ├── scheduler.c/h Simulación MLFQ (el corazón del laboratorio)
 ├── csv.c/h       Generación de results.csv
+├── experiments.c Corridas comparativas para la sección de análisis
 ├── tests.c       Pruebas mínimas con assert()
 ├── Makefile      Compilación para Windows y Linux
 ├── README.md
+├── DESIGN.md     Decisiones de diseño, principios y patrones
 ├── .gitignore
 └── results.csv   Salida de la última ejecución
 ```
 
 Cada archivo tiene una única responsabilidad: `process` describe los
 datos, `queue` implementa la estructura de datos, `scheduler` decide qué
-proceso corre, y `csv` exporta resultados. Es simplemente separación de
-responsabilidades por archivo, no una arquitectura formal.
+proceso corre, y `csv` exporta resultados. Las decisiones de diseño y los
+principios aplicados están explicados en [DESIGN.md](DESIGN.md).
 
 ## Compilación y ejecución
 
@@ -117,6 +119,38 @@ El programa no usa nada específico de un sistema operativo (solo C
 estándar y la biblioteca estándar), así que el mismo código fuente
 compila igual en ambos.
 
+### Opciones de línea de comandos
+
+```
+mlfq [-v] [-b N]
+  -v, --verbose   imprime la traza ciclo a ciclo
+  -b, --boost N   intervalo del priority boost (por defecto 20)
+  -h, --help      muestra esta ayuda
+```
+
+`-v` muestra qué proceso ejecuta en cada ciclo y en qué cola:
+
+```
+.\mlfq.exe -v
+[t= 0] P1 ejecuta en Q0 (restante=8)
+[t= 1] P1 ejecuta en Q0 (restante=7)
+[t= 2] P2 ejecuta en Q0 (restante=4)
+...
+```
+
+`-b N` permite comparar intervalos de boost sin recompilar; es lo que
+usa la sección de análisis.
+
+### Experimentos
+
+```
+mingw32-make run-experiments     # Windows
+make run-experiments             # Linux
+```
+
+Corre el mismo scheduler sobre varios escenarios e intervalos de boost y
+produce las tablas de la sección de análisis.
+
 ## Escenario de prueba
 
 | PID | Arrival | Burst |
@@ -153,54 +187,115 @@ waiting_time    = turnaround_time - burst_time
 
 ## Decisiones de diseño
 
-- `Queue` es un arreglo circular de tamaño fijo (no una lista enlazada),
-  porque el número de procesos es pequeño y conocido de antemano.
-- El proceso que tiene la CPU se guarda en una variable `current`
-  **separada** de las colas mientras se ejecuta. Si se reencolara en
-  cada ciclo, otros procesos de la misma cola le quitarían el turno
-  antes de agotar su quantum, rompiendo el Round Robin.
-- Si llega (o el boost trae) un proceso a una cola de mayor prioridad,
-  `current` libera la CPU pero conserva su `quantum_used`: no se le
-  regala un quantum nuevo por la interrupción.
-- El priority boost mueve a Q0 todo lo que espera en Q1/Q2 y, si hay un
-  proceso ejecutándose, lo reclasifica como Q0 sin sacarlo de la CPU.
-- El CSV se genera en un archivo aparte (`csv.c`) para no mezclar la
-  lógica de planificación con la de exportación de resultados.
-- La regla de democión (`SchedulerConfig.demote`) es un puntero a función:
-  `run_simulation` no conoce la regla concreta, solo la invoca. Por
-  defecto es NULL y se usa `default_demote` (Q0→Q1→Q2, se queda en Q2),
-  pero se puede reemplazar por otra regla —o una cola adicional— sin
-  modificar el bucle principal del scheduler. Es una aplicación puntual
-  de **Strategy**: se agregó porque el enunciado pide explícitamente que
-  el sistema permita esto (OCP), no como patrón decorativo. El resto del
-  simulador no usa patrones formales a propósito, para no sobre-diseñar
-  un simulador de este tamaño.
+Las decisiones no triviales del simulador —por qué el proceso en CPU vive
+fuera de las colas, por qué la regla de democión es intercambiable, por
+qué el dominio no incluye `stdio.h`— están explicadas y justificadas en
+**[DESIGN.md](DESIGN.md)**, junto con los principios (SRP, OCP, DIP) y los
+patrones aplicados.
 
 ## Pruebas
 
 `tests.c` usa `assert()` de la biblioteca estándar (sin frameworks) y
-cubre:
+cubre 11 casos:
 
 - cálculo de response, turnaround y waiting time;
 - democión Q0 → Q1 y Q1 → Q2;
 - permanencia en Q2 al agotar el quantum allí;
 - priority boost devolviendo un proceso a Q0;
-- un proceso que termina antes de agotar su quantum (no se demueve).
+- un proceso que termina antes de agotar su quantum (no se demueve);
+- validación: burst inválido, boost inválido y entrada correcta,
+  verificando el código devuelto y el dato que identifica el problema.
 
 ## Análisis
 
-**¿Qué ocurre si el boost es muy frecuente?**
-Los procesos vuelven muy seguido a Q0 y las colas inferiores pierden
-parte de su utilidad.
+Las respuestas salen de correr el propio simulador, no de la intuición.
+`experiments.c` ejecuta el mismo scheduler con distintos intervalos de
+boost y imprime las tablas de abajo:
 
-**¿Qué ocurre si no existe boost?**
-Un proceso en una prioridad baja puede tener que esperar durante mucho
-tiempo.
+```
+mingw32-make run-experiments     # Windows
+make run-experiments             # Linux
+```
 
-**¿Cómo afecta un quantum pequeño en Q0?**
-Permite responder rápido a procesos nuevos, aunque puede generar más
-cambios de proceso.
+Se usa `boost = 1000` para representar **no tener boost**: es mayor que
+la duración de ambos escenarios, así que nunca llega a dispararse.
 
-**¿Puede haber starvation?**
-Sí. Sin mecanismos como el priority boost, procesos de prioridad baja
-pueden quedar esperando demasiado tiempo.
+### Escenario del enunciado (P1–P4)
+
+| boost | response | turnaround | waiting | espera continua máx. de P1 | último ciclo |
+|-------|----------|------------|---------|----------------------------|--------------|
+| 2     | 2.00     | 19.25      | 12.75   | 6                          | 26           |
+| 3     | 2.25     | 19.50      | 13.00   | 9                          | 26           |
+| 5     | 1.75     | 20.25      | 13.75   | 7                          | 26           |
+| 10    | 1.50     | 19.25      | 12.75   | 6                          | 26           |
+| 20    | 1.50     | 19.50      | 13.00   | 9                          | 26           |
+| 1000  | 1.50     | 19.50      | 13.00   | 9                          | 26           |
+
+El primer hallazgo es incómodo pero real: **con boost 20 los resultados
+son idénticos a no tener boost**. Este escenario dura 26 ciclos, solo
+dispara un boost (en t=20) y para entonces ya no llegan procesos nuevos,
+así que las colas se vacían en el mismo orden con o sin él. El boost sí
+cambia *en qué cola* ejecutan P1 y P3 al final (Q0 en vez de Q2), pero
+no cambia *cuándo* terminan.
+
+Para ver el efecto real del boost hace falta un escenario con contención
+sostenida.
+
+### Escenario de contención (1 proceso de burst 20 + 24 cortos de burst 2)
+
+Un proceso corto llegando cada 2 ciclos satura exactamente la CPU: Q0
+nunca se vacía.
+
+| boost | response | turnaround | waiting | espera continua máx. del largo | último ciclo |
+|-------|----------|------------|---------|--------------------------------|--------------|
+| 2     | 7.04     | 11.68      | 8.96    | 12                             | 68           |
+| 3     | 7.04     | 11.68      | 8.96    | 12                             | 68           |
+| 5     | 6.40     | 11.04      | 8.32    | 14                             | 68           |
+| 10    | 3.68     | 8.32       | 5.60    | 10                             | 68           |
+| 20    | 1.44     | 6.08       | 3.36    | 20                             | 68           |
+| 1000  | 0.00     | 4.64       | 1.92    | **48**                         | 68           |
+
+### ¿Puede haber starvation?
+
+Sí, y aquí está medida. La columna clave es la **espera continua máxima**:
+cuántos ciclos seguidos pasa el proceso largo sin tocar la CPU.
+
+Sin boost son **48 ciclos seguidos** sin ejecutar. Con boost cada 20, esa
+espera queda **acotada a 20**: el boost funciona exactamente como un techo
+de starvation. Es la justificación de por qué el mecanismo existe.
+
+Lo que el boost **no** cambia es el último ciclo: 68 en todos los casos.
+La CPU nunca está ociosa, así que el trabajo total es el mismo; MLFQ
+redistribuye quién espera, no reduce cuánto hay que ejecutar.
+
+### ¿Qué ocurre si el boost es muy frecuente?
+
+Empeora a los procesos cortos: su waiting promedio sube de 1.92 (sin
+boost) a 8.96 (boost cada 2 ciclos), porque el proceso largo vuelve
+constantemente a Q0 a competir con ellos y las colas bajas dejan de
+cumplir su función de separar lo corto de lo largo.
+
+Y hay un efecto contraintuitivo: con boost 2 la espera continua máxima
+del largo es **12**, peor que los 10 del boost cada 10 ciclos. La razón es
+que el boost reencola en Q0 **al final**, así que boostear muy seguido
+mete al proceso largo detrás de toda la fila de cortos una y otra vez.
+Más boost no es automáticamente más justo.
+
+### ¿Qué ocurre si no existe boost?
+
+Los procesos cortos obtienen el mejor resultado posible (waiting promedio
+1.92, response 0.00) a costa del largo, que queda relegado 48 ciclos
+seguidos. Sin boost, MLFQ optimiza el caso promedio y abandona el peor
+caso.
+
+### ¿Cómo afecta un quantum pequeño en la cola de mayor prioridad?
+
+Q0 usa quantum 2, el más pequeño de los tres. Eso hace que un proceso
+nuevo obtenga CPU muy rápido (response promedio de 1.50 en el escenario
+del enunciado, y 0.00 para los cortos del escenario de contención,
+porque cada corto entra a Q0 y ejecuta de inmediato).
+
+El costo es más cambios de proceso y más demociones: en el escenario del
+enunciado los cuatro procesos son demovidos de Q0 tras solo 2 ciclos,
+aunque a tres de ellos les faltaba poco para terminar. Un quantum de Q0
+más grande reduciría ese trasiego a cambio de peor response time.

@@ -44,7 +44,7 @@ static void test_waiting_time(void) {
 static void test_demotion_q0_to_q1(void) {
     Process procs[1];
     process_init(&procs[0], 1, 0, 3);
-    run_simulation(procs, 1, default_config(), 0);
+    run_simulation(procs, 1, default_config());
 
     assert(procs[0].finished == 1);
     assert(procs[0].current_queue == 1);
@@ -57,7 +57,7 @@ static void test_demotion_q0_to_q1(void) {
 static void test_demotion_q1_to_q2(void) {
     Process procs[1];
     process_init(&procs[0], 1, 0, 7);
-    run_simulation(procs, 1, default_config(), 0);
+    run_simulation(procs, 1, default_config());
 
     assert(procs[0].finished == 1);
     assert(procs[0].current_queue == 2);
@@ -70,7 +70,7 @@ static void test_demotion_q1_to_q2(void) {
 static void test_q2_stays_in_q2(void) {
     Process procs[1];
     process_init(&procs[0], 1, 0, 17);
-    run_simulation(procs, 1, default_config(), 0);
+    run_simulation(procs, 1, default_config());
 
     assert(procs[0].finished == 1);
     assert(procs[0].current_queue == 2);
@@ -86,7 +86,7 @@ static void test_priority_boost_returns_to_q0(void) {
     process_init(&procs[0], 1, 0, 5);
 
     SchedulerConfig cfg = { .quantum = {2, 4, 8}, .boost_interval = 3 };
-    run_simulation(procs, 1, cfg, 0);
+    run_simulation(procs, 1, cfg);
 
     assert(procs[0].finished == 1);
     assert(procs[0].current_queue == 0);
@@ -100,11 +100,51 @@ static void test_priority_boost_returns_to_q0(void) {
 static void test_no_demotion_if_finishes_early(void) {
     Process procs[1];
     process_init(&procs[0], 1, 0, 1);
-    run_simulation(procs, 1, default_config(), 0);
+    run_simulation(procs, 1, default_config());
 
     assert(procs[0].finished == 1);
     assert(procs[0].current_queue == 0);
     assert(procs[0].finish_time == 1);
+}
+
+/*
+ * 9. La validacion ya no imprime: devuelve un codigo y deja en detail el dato
+ * que identifica el problema (aqui, el pid del proceso con burst invalido).
+ */
+static void test_validation_reports_invalid_burst(void) {
+    Process procs[2];
+    process_init(&procs[0], 1, 0, 5);
+    process_init(&procs[1], 2, 0, 0); /* burst_time invalido */
+
+    SchedulerConfig cfg = default_config();
+    int detail = 0;
+
+    assert(validate_input(procs, 2, &cfg, &detail) == VALIDATION_BURST_TIME);
+    assert(detail == 2);
+}
+
+/* 10. Un boost_interval invalido (puede llegar por CLI con -b) se rechaza. */
+static void test_validation_reports_invalid_boost(void) {
+    Process procs[1];
+    process_init(&procs[0], 1, 0, 4);
+
+    SchedulerConfig cfg = default_config();
+    cfg.boost_interval = 0;
+    int detail = 0;
+
+    assert(validate_input(procs, 1, &cfg, &detail) == VALIDATION_BOOST_INTERVAL);
+}
+
+/* 11. Una entrada correcta pasa sin codigo de error ni detalle asociado. */
+static void test_validation_accepts_valid_input(void) {
+    Process procs[1];
+    process_init(&procs[0], 1, 0, 4);
+
+    SchedulerConfig cfg = default_config();
+    int detail = 0;
+
+    assert(validate_input(procs, 1, &cfg, &detail) == VALIDATION_OK);
+    assert(detail == -1);
 }
 
 int main(void) {
@@ -116,6 +156,9 @@ int main(void) {
     test_q2_stays_in_q2();
     test_priority_boost_returns_to_q0();
     test_no_demotion_if_finishes_early();
+    test_validation_reports_invalid_burst();
+    test_validation_reports_invalid_boost();
+    test_validation_accepts_valid_input();
 
     printf("Todas las pruebas pasaron.\n");
     return 0;

@@ -1,4 +1,5 @@
-#include <stdio.h>
+#include <assert.h>
+#include <stddef.h> /* NULL: solo tipos y macros, sin I/O */
 #include "queue.h"
 
 void init_queue(Queue *q) {
@@ -12,10 +13,15 @@ int is_empty(const Queue *q) {
 }
 
 void enqueue(Queue *q, Process *p) {
-    if (q->count == MAX_PROCESSES) {
-        fprintf(stderr, "Error: la cola esta llena, no se puede encolar el proceso P%d\n", p->pid);
-        return;
-    }
+    /*
+     * Desbordar la cola no es un error del usuario sino una violacion de una
+     * invariante: validate_input ya garantiza n <= MAX_PROCESSES y un proceso
+     * solo puede estar en una cola a la vez. Por eso es un assert (falla
+     * ruidosamente en desarrollo) y no un mensaje a stderr: asi este modulo
+     * no depende de la consola.
+     */
+    assert(q->count < MAX_PROCESSES);
+
     q->items[q->rear] = p;
     q->rear = (q->rear + 1) % MAX_PROCESSES;
     q->count++;

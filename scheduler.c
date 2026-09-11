@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <stddef.h> /* NULL: solo tipos y macros, sin I/O */
 #include "scheduler.h"
 #include "queue.h"
 
@@ -8,34 +8,40 @@
  * que sacarlo y reencolarlo en cada ciclo (lo cual romperia el Round Robin,
  * porque otros procesos de la misma cola le quitarian el turno antes de
  * tiempo). Las colas solo contienen procesos en espera.
+ *
+ * Este archivo no incluye stdio.h a proposito: las reglas del scheduler no
+ * deben depender de la consola ni de archivos. Los errores se devuelven como
+ * codigo (ValidationResult) y los eventos se reportan por cfg.on_tick.
  */
 
-int validate_input(const Process procs[], int n, const SchedulerConfig *cfg) {
+ValidationResult validate_input(const Process procs[], int n, const SchedulerConfig *cfg, int *detail) {
+    *detail = -1;
+
     if (n <= 0 || n > MAX_PROCESSES) {
-        fprintf(stderr, "Error: la cantidad de procesos debe estar entre 1 y %d.\n", MAX_PROCESSES);
-        return 0;
+        *detail = n;
+        return VALIDATION_PROCESS_COUNT;
     }
     if (cfg->boost_interval <= 0) {
-        fprintf(stderr, "Error: el intervalo de priority boost debe ser mayor que 0.\n");
-        return 0;
+        *detail = cfg->boost_interval;
+        return VALIDATION_BOOST_INTERVAL;
     }
     for (int i = 0; i < NUM_QUEUES; i++) {
         if (cfg->quantum[i] <= 0) {
-            fprintf(stderr, "Error: el quantum de Q%d debe ser mayor que 0.\n", i);
-            return 0;
+            *detail = i; /* nivel de cola con el quantum invalido */
+            return VALIDATION_QUANTUM;
         }
     }
     for (int i = 0; i < n; i++) {
         if (procs[i].arrival_time < 0) {
-            fprintf(stderr, "Error: P%d tiene arrival_time negativo.\n", procs[i].pid);
-            return 0;
+            *detail = procs[i].pid;
+            return VALIDATION_ARRIVAL_TIME;
         }
         if (procs[i].burst_time <= 0) {
-            fprintf(stderr, "Error: P%d tiene burst_time invalido (debe ser > 0).\n", procs[i].pid);
-            return 0;
+            *detail = procs[i].pid;
+            return VALIDATION_BURST_TIME;
         }
     }
-    return 1;
+    return VALIDATION_OK;
 }
 
 /*
@@ -121,7 +127,7 @@ static void default_demote(Process *p, Queue queues[NUM_QUEUES]) {
  * Un solo ciclo de CPU por vuelta es lo que hace que la simulacion sea
  * de tiempo discreto y facil de seguir.
  */
-void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
+void run_simulation(Process procs[], int n, SchedulerConfig cfg) {
     Queue queues[NUM_QUEUES];
     for (int i = 0; i < NUM_QUEUES; i++) {
         init_queue(&queues[i]);
@@ -156,9 +162,10 @@ void run_simulation(Process procs[], int n, SchedulerConfig cfg, int verbose) {
             current->first_response_time = time;
         }
 
-        if (verbose) {
-            printf("[t=%d] P%d ejecuta en Q%d (restante=%d)\n",
-                   time, current->pid, current->current_queue, current->remaining_time);
+        /* Se reporta el ciclo antes de consumirlo, para que el observador vea
+           el estado con el que el proceso entra a ejecutar. */
+        if (cfg.on_tick != NULL) {
+            cfg.on_tick(time, current);
         }
 
         current->remaining_time--;
